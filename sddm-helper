@@ -1,0 +1,108 @@
+#!/bin/bash
+# =============================================================================
+# sddm-helper — Privileged helper for sync-cursor.sh (Target 8: SDDM)
+# Installed to: /etc/sync-cursor/sddm-helper (root:root, 0755)
+#
+# Called by sync-cursor.sh via: sudo -n /etc/sync-cursor/sddm-helper THEME SIZE
+#
+# This script runs as root. It independently validates all input (defense in
+# depth) and performs:
+#   1. Writes /etc/sddm.conf.d/zzz-sync-cursor.conf (zzz- prefix ensures it
+#      loads after kde_settings.conf and any other drop-ins, winning on
+#      CursorTheme).
+#   2. Updates /var/lib/sddm/.icons/default/index.theme to Inherits=THEME.
+#   3. Cleans up old cursor themes from /var/lib/sddm/.icons/ (keeps only
+#      current + default).
+#   4. If the theme is user-installed (not in /usr/share/icons), copies it
+#      to /var/lib/sddm/.icons/ so the sddm user can find it.
+# =============================================================================
+
+set -euo pipefail
+
+if [ $# -ne 2 ]; then
+    echo "Usage: sddm-helper THEME SIZE" >&2
+    exit 1
+fi
+
+THEME="$1"
+SIZE="$2"
+
+# --- Validate inputs (never trust the caller, even if it's our own script) ---
+if ! [[ "$THEME" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "sddm-helper: invalid theme name: ${THEME}" >&2
+    exit 1
+fi
+if ! [[ "$SIZE" =~ ^[0-9]+$ ]]; then
+    echo "sddm-helper: invalid size: ${SIZE}" >&2
+    exit 1
+fi
+if [ "${#THEME}" -gt 128 ] || [ "${#SIZE}" -gt 4 ]; then
+    echo "sddm-helper: input too long" >&2
+    exit 1
+fi
+
+# --- 1. Write SDDM config drop-in (zzz- prefix wins over kde_settings.conf) -
+SDDM_CONF="/etc/sddm.conf.d/zzz-sync-cursor.conf"
+mkdir -p /etc/sddm.conf.d
+
+SDDM_TMP=$(mktemp "${SDDM_CONF}.XXXXXX") || exit 1
+printf '[Theme]\nCursorTheme=%s\nCursorSize=%s\n' "$THEME" "$SIZE" > "$SDDM_TMP"
+chmod 0644 "$SDDM_TMP"
+mv -f "$SDDM_TMP" "$SDDM_CONF"
+
+# Remove old cursor.conf if it exists (from earlier versions of this setup).
+rm -f /etc/sddm.conf.d/cursor.conf
+
+# --- 2. Update sddm user's default cursor fallback --------------------------
+SDDM_ICONS="/var/lib/sddm/.icons"
+mkdir -p "${SDDM_ICONS}/default"
+
+DEFAULT_TMP=$(mktemp "${SDDM_ICONS}/default/index.theme.XXXXXX") || exit 1
+printf '[Icon Theme]\nName=Default\nComment=Default cursor (managed by sync-cursor)\nHidden=true\nInherits=%s\n' "$THEME" > "$DEFAULT_TMP"
+mv -f "$DEFAULT_TMP" "${SDDM_ICONS}/default/index.theme"
+chown -R sddm:sddm "${SDDM_ICONS}/default"
+
+# --- 3. Clean up old themes (keep only current + default) --------------------
+for dir in "${SDDM_ICONS}"/*/; do
+    [ ! -d "$dir" ] && continue
+    dir_name=$(basename "$dir")
+    [ "$dir_name" = "default" ] && continue
+    [ "$dir_name" = "$THEME" ] && continue
+    rm -rf "$dir"
+done
+
+# --- 4. Copy user-installed theme if not system-wide -------------------------
+if [ -d "/usr/share/icons/${THEME}" ]; then
+    exit 0
+fi
+
+REAL_USER="${SUDO_USER:-$(logname 2>/dev/null || true)}"
+[ -z "$REAL_USER" ] && exit 0
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+[ -z "$REAL_HOME" ] && exit 0
+
+THEME_SOURCE=""
+for candidate in \
+    "${REAL_HOME}/.local/share/icons/${THEME}" \
+    "${REAL_HOME}/.icons/${THEME}"; do
+    if [ -d "$candidate" ]; then
+        THEME_SOURCE="$candidate"
+        break
+    fi
+done
+
+[ -z "$THEME_SOURCE" ] && exit 0
+
+if [ ! -f "${THEME_SOURCE}/index.theme" ] && [ ! -d "${THEME_SOURCE}/cursors" ]; then
+    echo "sddm-helper: ${THEME_SOURCE} doesn't look like a cursor theme, skipping" >&2
+    exit 0
+fi
+
+mkdir -p "${SDDM_ICONS}/${THEME}"
+if command -v rsync &>/dev/null; then
+    rsync -a --delete "${THEME_SOURCE}/" "${SDDM_ICONS}/${THEME}/"
+else
+    rm -rf "${SDDM_ICONS}/${THEME}"
+    cp -a "$THEME_SOURCE" "${SDDM_ICONS}/${THEME}"
+fi
+chown -R sddm:sddm "${SDDM_ICONS}/${THEME}"
