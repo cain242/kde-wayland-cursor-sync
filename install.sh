@@ -14,6 +14,15 @@ echo ""
 echo "[1/4] Installing sync-cursor.sh to ${BIN_DIR}..."
 mkdir -p "$BIN_DIR"
 install -m 0755 "${SCRIPT_DIR}/sync-cursor.sh" "${BIN_DIR}/sync-cursor.sh"
+if ! echo "$PATH" | tr ':' '\n' | grep -qx "${BIN_DIR}"; then
+    echo ""
+    echo "  ⚠ WARNING: ${BIN_DIR} is not in your PATH."
+    echo "  The systemd service will work fine, but to run 'sync-cursor.sh --force'"
+    echo "  from your terminal, add this to your ~/.bashrc:"
+    echo ""
+    echo "    export PATH=\"\${HOME}/.local/bin:\${PATH}\""
+    echo ""
+fi
 
 # --- 2. Install systemd units ------------------------------------------------
 echo "[2/4] Installing systemd units..."

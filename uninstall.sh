@@ -36,13 +36,22 @@ rm -rf "${HOME}/.config/cursor-sync"
 # --- 4. Remove SDDM helper (if installed) ------------------------------------
 echo "[4/4] Checking for SDDM helper..."
 if [ -f /etc/sync-cursor/sddm-helper ]; then
-    echo "  -> SDDM helper found. Removing (requires sudo)..."
-    sudo rm -f /etc/sync-cursor/sddm-helper
-    sudo rmdir /etc/sync-cursor 2>/dev/null || true
-    sudo rm -f /etc/sudoers.d/sync-cursor-sddm
-    sudo rm -f /etc/sddm.conf.d/zzz-sync-cursor.conf
-    sudo rm -f /etc/sddm.conf.d/cursor.conf
-    echo "  -> SDDM helper and sudoers rule removed."
+    if sudo -n true 2>/dev/null; then
+        echo "  -> SDDM helper found. Removing..."
+        sudo rm -f /etc/sync-cursor/sddm-helper
+        sudo rmdir /etc/sync-cursor 2>/dev/null || true
+        sudo rm -f /etc/sudoers.d/sync-cursor-sddm
+        sudo rm -f /etc/sddm.conf.d/zzz-sync-cursor.conf
+        sudo rm -f /etc/sddm.conf.d/cursor.conf
+        echo "  -> SDDM helper and sudoers rule removed."
+    else
+        echo "  -> SDDM helper found but sudo requires a password."
+        echo "     Run 'sudo bash uninstall.sh' to remove SDDM components, or manually:"
+        echo "       sudo rm -f /etc/sync-cursor/sddm-helper"
+        echo "       sudo rm -rf /etc/sync-cursor"
+        echo "       sudo rm -f /etc/sudoers.d/sync-cursor-sddm"
+        echo "       sudo rm -f /etc/sddm.conf.d/zzz-sync-cursor.conf"
+    fi
 else
     echo "  -> No SDDM helper installed, skipping."
 fi

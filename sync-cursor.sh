@@ -19,10 +19,10 @@
 #                               see https://blogs.kde.org/2024/10/09/cursor-size-problems-in-wayland-explained/)
 #
 # One-time setup (SDDM):
-#   SDDM writes require root. Run the provided setup-sddm-cursor-sync.sh
+#   SDDM writes require root. Run the provided setup-sddm.sh
 #   script once to install a root-owned helper and sudoers rule:
 #
-#     sudo bash setup-sddm-cursor-sync.sh
+#     sudo bash setup-sddm.sh
 #
 #   This creates:
 #     /etc/sync-cursor/sddm-helper   — root-owned script that validates
@@ -59,6 +59,10 @@
 # systemd user services inherit a minimal environment; ensure standard bins
 # are always reachable.
 export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
+if [ -z "$XDG_RUNTIME_DIR" ]; then
+    XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+    mkdir -p "$XDG_RUNTIME_DIR"
+fi
 
 # --- 1. LOCK ----------------------------------------------------------------
 # Prevent concurrent runs if systemd fires multiple times quickly.
@@ -90,7 +94,7 @@ SIZE=${SIZE:-24}
 
 # Validate: prevent injecting garbage into config files.
 [[ "$SIZE" =~ ^[0-9]+$ ]] || SIZE=24
-THEME=$(printf '%s' "$THEME" | tr -cd '[:alnum:]_-')
+THEME=$(printf '%s' "$THEME" | tr -cd '[:alnum:]_.-')
 [ -z "$THEME" ] && THEME=breeze_cursors
 
 # --- 3b. SIZE AUTO-CORRECTION -----------------------------------------------
@@ -153,7 +157,7 @@ if [ -n "$THEME_DIR" ]; then
 
     # Fallback: just pick the first regular file in cursors/ that isn't a symlink.
     if [ -z "$SAMPLE_CURSOR" ]; then
-        SAMPLE_CURSOR=$(find "${THEME_DIR}/cursors" -maxdepth 1 -type f -print -quit 2>/dev/null)
+    SAMPLE_CURSOR=$(find "${THEME_DIR}/cursors" -maxdepth 1 \( -type f -o -type l \) -print -quit 2>/dev/null)
     fi
 
     if [ -n "$SAMPLE_CURSOR" ]; then
@@ -457,7 +461,7 @@ update_gtkrc2 "${HOME}/.gtkrc-2.0"
 # before the greeter) could export it, but that requires overriding
 # DisplayCommand in sddm.conf, which is invasive. For the login screen,
 # the theme's built-in default size is typically fine.
-if [ -x /etc/sync-cursor/sddm-helper ] && sudo -n true 2>/dev/null; then
+if [ -x /etc/sync-cursor/sddm-helper ]; then
     # The helper validates its arguments independently (defense in depth)
     # and handles: config write, theme detection, and theme copy.
     sudo -n /etc/sync-cursor/sddm-helper "$THEME" "$SIZE" 2>/dev/null
