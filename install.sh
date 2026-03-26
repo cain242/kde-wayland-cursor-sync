@@ -5,7 +5,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
-PROFILE="${HOME}/.profile"
 
 echo "=== kde-cursor-sync installer ==="
 echo ""
@@ -56,12 +55,24 @@ echo "  -> systemd path unit enabled and watching ~/.config/kcminputrc"
 echo "[3/4] Setting up Distrobox support..."
 PROFILE_LINE='[ -r "${HOME}/.config/cursor-sync/env" ] && . "${HOME}/.config/cursor-sync/env"'
 
-if [ -f "$PROFILE" ] && grep -qF 'cursor-sync/env' "$PROFILE" 2>/dev/null; then
-    echo "  -> Already present in ${PROFILE}, skipping."
+# Detect shell: write to the correct profile file(s).
+# zsh doesn't source ~/.profile by default — it uses ~/.zprofile.
+PROFILES=()
+USER_SHELL=$(basename "${SHELL:-/bin/bash}")
+if [ "$USER_SHELL" = "zsh" ]; then
+    PROFILES+=("${HOME}/.zprofile")
 else
-    echo "$PROFILE_LINE" >> "$PROFILE"
-    echo "  -> Added env source line to ${PROFILE}"
+    PROFILES+=("${HOME}/.profile")
 fi
+
+for PROFILE in "${PROFILES[@]}"; do
+    if [ -f "$PROFILE" ] && grep -qF 'cursor-sync/env' "$PROFILE" 2>/dev/null; then
+        echo "  -> Already present in ${PROFILE}, skipping."
+    else
+        echo "$PROFILE_LINE" >> "$PROFILE"
+        echo "  -> Added env source line to ${PROFILE}"
+    fi
+done
 
 # --- 4. Initial sync ---------------------------------------------------------
 echo "[4/4] Running initial sync..."

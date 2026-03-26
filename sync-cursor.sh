@@ -64,6 +64,27 @@ if [ -z "$XDG_RUNTIME_DIR" ]; then
     mkdir -p "$XDG_RUNTIME_DIR"
 fi
 
+# --- 0b. ENVIRONMENT DETECTION ----------------------------------------------
+# Not on KDE → exit immediately with a notification. The script reads KDE-
+# specific config (kcminputrc via kreadconfig6) and is useless without it.
+if ! command -v kreadconfig6 &>/dev/null; then
+    notify-send \
+        --app-name="Cursor Sync" \
+        --icon=dialog-error \
+        "Cursor Sync: Not a KDE Plasma session" \
+        "kreadconfig6 not found. This script requires KDE Plasma 6." \
+        2>/dev/null
+    echo "sync-cursor: error: kreadconfig6 not found — not a KDE Plasma 6 session." >&2
+    exit 1
+fi
+
+# Not on Wayland → warn but continue. Most targets still work under X11, but
+# XWayland-specific logic (DISPLAY detection, xrdb merge) may behave
+# differently and the script was never tested there.
+if [ "${XDG_SESSION_TYPE:-}" != "wayland" ]; then
+    echo "sync-cursor: warning: session type is '${XDG_SESSION_TYPE:-unset}', not 'wayland'. This script is designed for Wayland sessions." >&2
+fi
+
 # --- 1. LOCK ----------------------------------------------------------------
 # Prevent concurrent runs if systemd fires multiple times quickly.
 LOCK_FILE="${XDG_RUNTIME_DIR}/sync-cursor.lock"
@@ -72,6 +93,9 @@ if ! flock -n 9; then
     echo "sync-cursor: already running, exiting duplicate instance." >&2
     exit 0
 fi
+# NOTE: FD 9 holds the flock. We must NOT close it globally (exec 9>&-
+# would release the lock). Instead, every external command that could
+# potentially hang gets 9>&- so children don't inherit the lock FD.
 
 # --- 2. DBUS ----------------------------------------------------------------
 # Only set if absent — never overwrite a live session address.
@@ -223,7 +247,7 @@ atomic_write() {
     local dest="$1" content="$2" tmp
     mkdir -p "$(dirname "$dest")"
     tmp=$(mktemp "${dest}.XXXXXX") || return 1
-    printf '%s' "$content" > "$tmp" && mv -f "$tmp" "$dest"
+    printf '%s' "$content" > "$tmp" && mv -f "$tmp" "$dest" || { rm -f "$tmp"; return 1; }
 }
 
 # GTK 3/4 ini updater (settings.ini format).
@@ -327,7 +351,7 @@ systemctl --user set-environment \
     XCURSOR_THEME="$THEME" \
     XCURSOR_SIZE="$SIZE" \
     XCURSOR_PATH="$XCURSOR_PATH_VALUE" \
-    2>/dev/null
+    9>&- 2>/dev/null
 
 # =============================================================================
 # TARGET 2 — FLATPAKS (single consolidated command, skipped if not installed)
@@ -357,7 +381,7 @@ if command -v flatpak &>/dev/null; then
         --env=XCURSOR_PATH="${HOME}/.icons:${HOME}/.local/share/icons:/run/host/user-share/icons:/run/host/share/icons" \
         --filesystem="${HOME}/.icons:ro" \
         --filesystem="${HOME}/.local/share/icons:ro" \
-        2>/dev/null
+        9>&- 2>/dev/null
 fi
 
 # =============================================================================
@@ -412,7 +436,7 @@ if command -v xrdb &>/dev/null; then
     fi
     if [ -n "$DISPLAY" ]; then
         export DISPLAY
-        printf '%s\n' "$XRESOURCES_CONTENT" | xrdb -merge - 2>/dev/null
+        printf '%s\n' "$XRESOURCES_CONTENT" | xrdb -merge - 9>&- 2>/dev/null
     fi
 fi
 
@@ -424,8 +448,8 @@ fi
 # Battery: each gsettings call is a D-Bus roundtrip that can wake
 # dconf-service. Skip if gsettings isn't available.
 if command -v gsettings &>/dev/null; then
-    gsettings set org.gnome.desktop.interface cursor-theme "$THEME" 2>/dev/null
-    gsettings set org.gnome.desktop.interface cursor-size  "$SIZE"  2>/dev/null
+    gsettings set org.gnome.desktop.interface cursor-theme "$THEME" 9>&- 2>/dev/null
+    gsettings set org.gnome.desktop.interface cursor-size  "$SIZE"  9>&- 2>/dev/null
 fi
 
 # =============================================================================
@@ -464,7 +488,7 @@ update_gtkrc2 "${HOME}/.gtkrc-2.0"
 if [ -x /etc/sync-cursor/sddm-helper ]; then
     # The helper validates its arguments independently (defense in depth)
     # and handles: config write, theme detection, and theme copy.
-    sudo -n /etc/sync-cursor/sddm-helper "$THEME" "$SIZE" 2>/dev/null
+    sudo -n /etc/sync-cursor/sddm-helper "$THEME" "$SIZE" 9>&- 2>/dev/null
 fi
 
 # =============================================================================
@@ -510,6 +534,6 @@ notify-send \
     --icon=input-mouse \
     "Cursor Synced" \
     "Theme: <b>${THEME}</b>  |  Size: <b>${SIZE}</b>  |  Restart XWayland apps to apply." \
-    2>/dev/null
+    9>&- 2>/dev/null
 
 echo "sync-cursor: complete. XCURSOR_THEME=${THEME} XCURSOR_SIZE=${SIZE}" >&2

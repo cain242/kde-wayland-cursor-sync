@@ -28,7 +28,7 @@ THEME="$1"
 SIZE="$2"
 
 # --- Validate inputs (never trust the caller, even if it's our own script) ---
-if ! [[ "$THEME" =~ ^[A-Za-z0-9_-]+$ ]]; then
+if ! [[ "$THEME" =~ ^[A-Za-z0-9_.-]+$ ]]; then
     echo "sddm-helper: invalid theme name: ${THEME}" >&2
     exit 1
 fi

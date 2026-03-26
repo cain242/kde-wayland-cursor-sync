@@ -4,7 +4,6 @@ set -euo pipefail
 
 BIN_DIR="${HOME}/.local/bin"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
-PROFILE="${HOME}/.profile"
 
 echo "=== kde-cursor-sync uninstaller ==="
 echo ""
@@ -22,13 +21,13 @@ rm -f "${BIN_DIR}/sync-cursor.sh"
 echo "  -> Done."
 
 # --- 3. Remove Distrobox env source -------------------------------------------
-echo "[3/4] Cleaning up ${PROFILE}..."
-if [ -f "$PROFILE" ]; then
-    sed -i '/cursor-sync\/env/d' "$PROFILE"
-    echo "  -> Removed env source line."
-else
-    echo "  -> No ${PROFILE} found, skipping."
-fi
+echo "[3/4] Cleaning up shell profiles..."
+for PROFILE in "${HOME}/.profile" "${HOME}/.zprofile"; do
+    if [ -f "$PROFILE" ]; then
+        sed -i '/cursor-sync\/env/d' "$PROFILE"
+        echo "  -> Cleaned ${PROFILE}."
+    fi
+done
 
 # Remove the env file
 rm -rf "${HOME}/.config/cursor-sync"
